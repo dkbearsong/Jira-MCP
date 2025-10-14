@@ -3,7 +3,7 @@ from dotenv import load_dotenv, set_key
 from pathlib import Path
 import logging, os
 from jira import JIRA
-from .jql_builder import build_JQL
+from jql_builder import build_JQL
 
 
 
