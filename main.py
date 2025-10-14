@@ -149,31 +149,48 @@ def get_custom_fields(instance):
 @mcp.tool()
 def jira_search(users: list, company: list, task_type: str, issue_key: str, criteria: dict, return_fields: list):
     """
-    Searches a user's Jira site for Jira issues/work items based on given criteria, and returns back key details about the issues/work items for an LLM 
-    agent to use to analyze details.
+    Searches a user's Jira site for issues based on given parameters and returns
+    issue details for an agent to analyze.
 
     Args:
         users: list of users to search for
         company: list of companies to search for, if relevant
-        task_type: string detailing if task is "issue_search" if searching for a single issue or "JQL" for custom search
-        issue: string of issue key for use with single issue search
-        criteria: dictionary of specific fields to search on as well as any specific values to include in the search. 
-        return_fields: list of fields to return in the response
+        task_type: "issue_search" for a single issue key, or "JQL" for a
+            criteria-based search
+        issue_key: Jira issue key when task_type == "issue_search"
+        criteria: dictionary describing field-based filters for a JQL search
+        return_fields: list of fields to include in the response
 
-    JSON structure for criteria: 
+    JSON structure for criteria (strict):
+    - Only use Jira-recognized field names that exist in the site as keys. Do
+      not invent or include extra/non-Jira fields inside criteria.
+    - Each field key may have either:
+      1) a simple value, or
+      2) an object with an operator/value (and optional function).
+    - Logical grouping is supported with top-level keys "and" or "or", each
+      mapping to a list of criteria dictionaries. Each dict in these lists must
+      still use Jira field names as keys.
+
+    Examples:
     {
-        'field_name': {
-            'operator': 'equals|not_equals|in|not_in|contains|not_contains|greater_than|less_than|...',
-            'value': 'single_value' or ['list', 'of', 'values'],
-            'function': 'optional_jql_function()'  # e.g., 'currentUser()', 'startOfDay()'
+        'reporter': {
+            'operator': 'equals',
+            'value': 'Dereck Bearsong'
         },
-        # OR simple format:
-        'field_name': 'simple_value',
-        
-        # OR nested with logical operators:
-        'and': [...],  # List of criteria dicts to AND together
-        'or': [...]    # List of criteria dicts to OR together
+        'priority': 'Low'
     }
+
+    {
+        'and': [
+            { 'reporter': { 'operator': 'equals', 'value': 'Dereck Bearsong' } },
+            { 'priority': { 'operator': 'equals', 'value': 'Low' } }
+        ]
+    }
+
+    Supported operators include: equals, not_equals, in, not_in, contains,
+    not_contains, greater_than, less_than, is, is_not, was, was_in, was_not,
+    was_not_in, changed. The optional 'function' can be used for JQL functions
+    like 'currentUser()' or 'startOfDay()'.
 
     Return:
         dict or str: providing details about the ticket or tickets that have been requested if successful, string with error details if error occurs
