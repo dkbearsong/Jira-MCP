@@ -147,14 +147,12 @@ def get_custom_fields(instance):
 
 
 @mcp.tool()
-def jira_search(users: list, company: list, task_type: str, issue_key: str, criteria: dict, return_fields: list):
+def jira_search( task_type: str, issue_key: str, criteria: dict, return_fields: list):
     """
     Searches a user's Jira site for issues based on given parameters and returns
     issue details for an agent to analyze.
 
     Args:
-        users: list of users to search for
-        company: list of companies to search for, if relevant
         task_type: "issue_search" for a single issue key, or "JQL" for a
             criteria-based search
         issue_key: Jira issue key when task_type == "issue_search"
@@ -205,7 +203,7 @@ def jira_search(users: list, company: list, task_type: str, issue_key: str, crit
         issue = issue_search(jira, issue_key, return_fields)
         return issue
     elif task_type == 'JQL':
-        JQL = build_JQL(users, company, criteria)
+        JQL = build_JQL(criteria)
         issues = jql_search(jira, JQL)
         return issues
 

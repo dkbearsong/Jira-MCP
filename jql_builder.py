@@ -1,13 +1,9 @@
-def build_JQL(u: list, co: list, crit: dict):
+def build_JQL(crit: dict):
     """
     Build a JQL query from users, companies, and criteria dictionaries.
     
     Parameters:
     -----------
-    users : list, optional
-        List of usernames to search for (searches in assignee, reporter, etc.)
-    companies : list, optional
-        List of company names to search for
     criteria : dict, optional
         Dictionary of search criteria with structure:
         {
@@ -129,20 +125,6 @@ def build_JQL(u: list, co: list, crit: dict):
     
     # Build the query parts
     query_parts = []
-    
-    # Add users clause (search in assignee by default)
-    if u:
-        if len(u) == 1:
-            query_parts.append(f'assignee = {format_value(u[0])}')
-        else:
-            query_parts.append(f'assignee IN {format_value_list(u)}')
-    
-    # Add companies clause (assuming a 'company' custom field exists)
-    if co:
-        if len(co) == 1:
-            query_parts.append(f'company = {format_value(co[0])}')
-        else:
-            query_parts.append(f'company IN {format_value_list(co)}')
     
     # Add criteria
     if crit:
