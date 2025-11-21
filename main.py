@@ -4,8 +4,8 @@ from pathlib import Path
 import logging, os
 from jira import JIRA
 from jql_builder import build_JQL
-
-
+from jira_RAG import JiraRAGTool
+import asyncio
 
 load_dotenv()
 
@@ -23,15 +23,22 @@ logging.basicConfig(
 logging.debug("MCP Server starting up...")
 
 def get_env_var(from_mcp: bool = False):
-    """ Grabs the API token and the Jira site, reqeusts it if it does not exist. """
+    """ 
+    Grabs the API token and the Jira site, reqeusts it if it does not exist. 
+    Args:
+        from_mcp: bool indicating if the function is called from MCP tool initialization
+    Return:
+        dict or str: containing the email, API token, and Jira site if successful, string with error details if error occurs
+    """
     # Checks to see if an API token exists in the .env. If not, first checks for a .env and creates it, then requests the email address and API token to store. Skips if from MCP
     env_path = Path('.') / '.env'
     env_path.touch(exist_ok=True)
 
-    # Prefer explicit JIRA-specific variable names; fall back for backwards compatibility
-    jira_email = os.getenv("JIRA_EMAIL") or os.getenv("JIRA_USER_EMAIL") or os.getenv("USER")
+    # Load existing environment variables from .env file
+    jira_email = os.getenv("JIRA_EMAIL")
     api_token = os.getenv("API_TOKEN")
     jira_site = os.getenv("JIRA_SITE")
+    chroma_db_path = os.getenv("CHROMA_DB_PATH")
 
     if (not jira_email or not api_token) and from_mcp:
         return ("API credentials not set. Please run a setup step to set JIRA_EMAIL and API_TOKEN in .env.")
@@ -49,6 +56,11 @@ def get_env_var(from_mcp: bool = False):
         set_key(env_path, "API_TOKEN", token_input)
         jira_email, api_token = user_input, token_input
 
+    if not chroma_db_path:
+        default_path = str(Path.home() / "jira_chroma_db")
+        set_key(env_path, "CHROMA_DB_PATH", default_path)
+        chroma_db_path = default_path
+
     if not jira_site and from_mcp:
         return ("JIRA site missing. Please set JIRA_SITE in .env (e.g., https://yourorg.atlassian.net).")
 
@@ -60,7 +72,8 @@ def get_env_var(from_mcp: bool = False):
     return {
         'user': jira_email,
         'API_token': api_token,
-        'Jira_site': jira_site
+        'Jira_site': jira_site,
+        'chroma_db_path': chroma_db_path
     }
 
 def issue_search(instance, key, rf):
@@ -145,11 +158,33 @@ def get_custom_fields(instance):
             custom_fields[field_id] = field.get('name', field_id_full)
     return custom_fields
 
+@mcp.tool()
+async def jira_rag(query: str):
+    """
+    PRIMARY TOOL: Use this tool first to search the pre-indexed ChromaDB vector database for 
+    information from the Jira site relevant to the user's query. It provides quick access to
+    common data and summarized information regarding Jira issues, statuses, and procedures.
+
+    Args:
+        query: The user's exact question or query that needs external information lookup.
+    Return:
+        A structured response indicating success with documents, or a status of 'insufficient'
+        with a suggested next tool.
+    """
+    env_vars = get_env_var(True)
+    if isinstance(env_vars, str):
+        return env_vars
+    chroma_path = env_vars['chroma_db_path']
+    rag_tool = JiraRAGTool(persist_directory=chroma_path)
+    return await rag_tool.query_jira_rag(query=query)
+
+
 
 @mcp.tool()
 def jira_search( task_type: str, issue_key: str, criteria: dict, return_fields: list):
     """
-    Searches a user's Jira site for issues based on given parameters and returns
+    SECONDARY TOOL: Use this tool ONLY IF the RAG database search (jira_rag) fails to provide an 
+    adequate answer. Searches a user's Jira site for issues based on given parameters and returns
     issue details for an agent to analyze.
 
     Args:
@@ -225,6 +260,3 @@ def jira_searcher():
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
-
-# Current To-Do: update the single issue search to pull custom field names
-# Future To-Do: create a write ticket and edit ticket tool.
