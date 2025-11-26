@@ -171,17 +171,25 @@ async def jira_rag(query: str):
         A structured response indicating success with documents, or a status of 'insufficient'
         with a suggested next tool.
     """
-    env_vars = get_env_var(True)
-    if isinstance(env_vars, str):
-        return env_vars
-    chroma_path = env_vars['chroma_db_path']
-    rag_tool = JiraRAGTool(persist_directory=chroma_path)
-    return await rag_tool.query_jira_rag(query=query)
+    try:
+        env_vars = get_env_var(True)
+        if isinstance(env_vars, str):
+            logging.error(f"jira_rag environment error: {env_vars}")
+            return env_vars
+        chroma_path = env_vars['CHROMA_DB_PATH']
+        rag_tool = JiraRAGTool(persist_directory=chroma_path)
+        result = await rag_tool.query_jira_rag(query=query)
+        logging.debug(f"jira_rag query successful: {query}")
+        return result
+    except Exception as e:
+        error_msg = f"jira_rag error for query '{query}': {str(e)}"
+        logging.error(error_msg, exc_info=True)
+        return error_msg
 
 
 
 @mcp.tool()
-def jira_search( task_type: str, issue_key: str, criteria: dict, return_fields: list):
+def jira_search(task_type: str, issue_key: str, criteria: dict, return_fields: list):
     """
     SECONDARY TOOL: Use this tool ONLY IF the RAG database search (jira_rag) fails to provide an 
     adequate answer. Searches a user's Jira site for issues based on given parameters and returns
@@ -228,6 +236,27 @@ def jira_search( task_type: str, issue_key: str, criteria: dict, return_fields: 
     Return:
         dict or str: providing details about the ticket or tickets that have been requested if successful, string with error details if error occurs
     """
+    try:
+        env_vars = get_env_var(True)
+        if isinstance(env_vars, str):
+            logging.error(f"jira_search environment error: {env_vars}")
+            return f"Fatal Error: {env_vars}"
+        
+        jira = JIRA(server=env_vars['Jira_site'], basic_auth=(env_vars['user'], env_vars['API_token']))
+
+        if task_type == "issue_search":
+            issue = issue_search(jira, issue_key, return_fields)
+            logging.debug(f"jira_search successful: issue_key={issue_key}")
+            return issue
+        elif task_type == 'JQL':
+            JQL = build_JQL(criteria)
+            issues = jql_search(jira, JQL)
+            logging.debug(f"jira_search successful: JQL={JQL}, found {len(issues)} issues")
+            return issues
+    except Exception as e:
+        error_msg = f"jira_search error (task_type={task_type}): {str(e)}"
+        logging.error(error_msg, exc_info=True)
+        return error_msg
     env_vars = get_env_var(True)
     if isinstance(env_vars, str):
         return f"Fatal Error: {env_vars}"
@@ -241,6 +270,7 @@ def jira_search( task_type: str, issue_key: str, criteria: dict, return_fields: 
         JQL = build_JQL(criteria)
         issues = jql_search(jira, JQL)
         return issues
+
 
 @mcp.prompt()
 def jira_searcher():
@@ -257,6 +287,25 @@ def jira_searcher():
 
     """
 
+@mcp.prompt()
+def jira_rag_context():
+    """Instructions for using jira_rag tool (vector search)."""
+    return """# Jira RAG Context
+
+    You are a Jira RAG agent. Use the tool `jira_rag` to perform **fast semantic lookups** 
+    from the pre-indexed ChromaDB vector database.
+
+    Use this context when:
+    - The query is general ("How do we triage bugs?")
+    - The query involves procedures, workflows, statuses, summaries
+    - The user asks for explanations, guidance, onboarding, or definitions
+    - The query does NOT refer to specific issue keys
+
+    Rules:
+    - Return concise but complete semantic results.
+    - If RAG returns an 'insufficient' status, instruct the Agent to call `jira_search`.
+    - Do NOT invent Jira fields. Only use content from retrieved documents.
+    """
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
