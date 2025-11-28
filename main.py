@@ -176,9 +176,9 @@ async def jira_rag(query: str):
         if isinstance(env_vars, str):
             logging.error(f"jira_rag environment error: {env_vars}")
             return env_vars
-        chroma_path = env_vars['CHROMA_DB_PATH']
+        chroma_path = env_vars['chroma_db_path']
         rag_tool = JiraRAGTool(persist_directory=chroma_path)
-        result = await rag_tool.query_jira_rag(query=query)
+        result = await rag_tool.query_jira_rag(query=query,relevance_threshold=0.55)
         logging.debug(f"jira_rag query successful: {query}")
         return result
     except Exception as e:
@@ -307,5 +307,23 @@ def jira_rag_context():
     - Do NOT invent Jira fields. Only use content from retrieved documents.
     """
 
+async def main():
+    query = "Tell me about the mobile login issue where the button is not working on iOS devices"
+    try:
+        env_vars = get_env_var(True)
+        if isinstance(env_vars, str):
+            logging.error(f"jira_rag environment error: {env_vars}")
+            return env_vars
+        chroma_path = env_vars['chroma_db_path']
+        rag_tool = JiraRAGTool(persist_directory=chroma_path)
+        result = await rag_tool.query_jira_rag(query=query,relevance_threshold=0.35)
+        logging.debug(f"jira_rag query successful: {query}")
+        return result
+    except Exception as e:
+        error_msg = f"jira_rag error for query '{query}': {str(e)}"
+        logging.error(error_msg, exc_info=True)
+        return error_msg
+
 if __name__ == "__main__":
+    # print(asyncio.run(main()))
     mcp.run(transport="stdio")

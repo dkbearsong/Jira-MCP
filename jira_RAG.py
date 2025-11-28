@@ -10,6 +10,7 @@ except Exception:
 import numpy as np
 from datetime import datetime
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 class JiraRAGTool:
     """
     MCP tool for RAG-enabled Jira querying with ChromaDB.
@@ -19,7 +20,7 @@ class JiraRAGTool:
     def __init__(
         self,
         collection_name: str = "jira_issues",
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedding_model: str = "msmarco-distilbert-base-v4",
         chroma_host: Optional[str] = None,
         chroma_port: Optional[int] = None,
         persist_directory: str = "./chroma_db"
@@ -64,7 +65,7 @@ class JiraRAGTool:
                 host=chroma_host,
                 port=chroma_port
             )
-            print(f"Connected to ChromaDB at {chroma_host}:{chroma_port}")
+            # print(f"Connected to ChromaDB at {chroma_host}:{chroma_port}")
         else:
             # Development: Local persistent SQLite
             self.client = chromadb.PersistentClient(
@@ -74,14 +75,14 @@ class JiraRAGTool:
                     allow_reset=True
                 )
             )
-            print(f"Using local ChromaDB at {persist_directory}")
+            # print(f"Using local ChromaDB at {persist_directory}")
         
         # Get or create collection
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
             metadata={"description": "Jira issues from webhooks"}
         )
-        print(self.collection)
+        # print(self.collection)
     
     def calculate_relevance_score(
         self,
@@ -105,7 +106,7 @@ class JiraRAGTool:
         
         # Convert distances to similarity scores (lower distance = higher similarity)
         # ChromaDB uses L2 distance by default
-        similarity_scores = [1 / (1 + d) for d in distances]
+        similarity_scores = [1 - d for d in distances]
         
         # Calculate average similarity
         avg_similarity = np.mean(similarity_scores)
@@ -135,16 +136,13 @@ class JiraRAGTool:
         """
         if not results or not results.get('documents'):
             return False, 0.0, "No documents found in ChromaDB"
-        
         documents = results['documents'][0] if results['documents'] else []
         distances = results['distances'][0] if results.get('distances') else []
-        
         if len(documents) < min_results:
             return False, 0.0, f"Insufficient results: found {len(documents)}, need {min_results}"
         
         # Get query embedding
         query_embedding = self.embedding_model.encode(query)
-        
         # Get result embeddings
         result_embeddings = [
             self.embedding_model.encode(doc) for doc in documents
@@ -171,7 +169,7 @@ class JiraRAGTool:
         self,
         query: str,
         n_results: int = 5,
-        relevance_threshold: float = 0.6,
+        relevance_threshold: float = 0.55,
         include_metadata: bool = True
     ) -> Dict[str, Any]:
         """
@@ -199,15 +197,12 @@ class JiraRAGTool:
                 n_results=n_results,
                 include=['documents', 'metadatas', 'distances']
             )
-            print(results)
-            
             # Check context relevance
             is_relevant, score, explanation = self.is_context_relevant(
                 query,
                 results,
                 relevance_threshold
             )
-            
             if is_relevant:
                 # Context is relevant - return RAG results with formatted context
                 documents = results['documents'][0]

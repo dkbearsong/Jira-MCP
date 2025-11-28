@@ -71,7 +71,7 @@ def main():
     jr.chromadb.PersistentClient = FakePersistentClient
     jr.chromadb.HttpClient = FakePersistentClient
     """
-    
+
     rag = jr.JiraRAGTool(persist_directory='/Users/dbearsong/Documents/GitHub/Jira-Pipeline/chroma')
 
     """sample_issue = {
@@ -90,7 +90,7 @@ def main():
 
     async def run_queries():
         print('\n=== High relevance query ===')
-        res1 = await rag.query_jira_rag('Tell me about the mobile login issue where the button is not working on iOS devices')
+        res1 = await rag.query_jira_rag(query=f'Tell me about uploading a custom profile picture so that I can personalize my account',relevance_threshold=0.55)
         print(res1)
 
         print('\n=== Low relevance query ===')
