@@ -5,7 +5,6 @@ import logging, os
 from jira import JIRA
 from jql_builder import build_JQL
 from jira_RAG import JiraRAGTool
-import asyncio
 
 load_dotenv()
 
@@ -78,7 +77,8 @@ def get_env_var(from_mcp: bool = False):
 
 def issue_search(instance, key, rf):
     """
-    Runs the API search to get the a single tickets details
+    Runs the API search to get the a single tickets details. First remaps any custom 
+    fields to human-readable names. Then returns the issue details as a dictionary.
 
     Args:
         instance: obj containing Jira instance
@@ -86,11 +86,14 @@ def issue_search(instance, key, rf):
         crit: dict containing list of fields to search for
 
     Return:
+        dict: providing details about the ticket if successful
     """
+    # Determine fields to retrieve
     if rf:
         fields = ", ".join(rf)
     else:
         fields = "*all"
+    # Get issue details
     issue = instance.issue(key, fields=fields)
     field_guide = get_custom_fields(instance)
     issue_dict = issue.raw
@@ -111,7 +114,9 @@ def issue_search(instance, key, rf):
 
 def jql_search(instance, query, max_results: int = 50):
     """
-    Runs the API search to get a JQL search
+    Runs the API search to get a JQL search. First remaps any custom 
+    fields to human-readable names. Next, returns the list of issues found as dictionaries.
+    Finally, handles pagination to get all results.
 
     Args:
         instance: obj containing Jira instance
@@ -119,22 +124,25 @@ def jql_search(instance, query, max_results: int = 50):
 
     Return:
     """
+    # Handle pagination
     start_at = 0
     all_issues = []
     field_guide = get_custom_fields(instance)
 
+    # Loop to fetch all results
     while True:
         results = instance.search_issues(query, startAt=start_at, maxResults=max_results)
         if not results:
             break
+        # Process and remap each issue
         for issue in results:
-            issue_dict = issue.raw
+            issue_dict = issue.raw # Get raw issue data as dictionary for remapping
             fields_dict = issue_dict.get("fields", {})
             remapped_fields = {}
             for field_key, field_value in fields_dict.items():
                 if isinstance(field_key, str) and field_key.startswith("customfield_"):
                     field_id = field_key.split("_")[1]
-                    human_readable = field_guide.get(field_id, field_key)
+                    human_readable = field_guide.get(field_id, field_key) # Remap to human-readable name by running through field guide to get name
                     remapped_fields[human_readable] = field_value
                 else:
                     remapped_fields[field_key] = field_value
@@ -147,6 +155,13 @@ def jql_search(instance, query, max_results: int = 50):
     return all_issues
 
 def get_custom_fields(instance):
+    """
+    Retrieves custom field mappings from the Jira instance.
+    Args:
+        instance: obj containing Jira instance
+    Return:
+        dict: mapping custom field IDs to human-readable names
+    """
     custom_fields = {}
     all_fields = instance.fields()
     for field in all_fields:
@@ -261,7 +276,7 @@ def jira_search(task_type: str, issue_key: str, criteria: dict, return_fields: l
     if isinstance(env_vars, str):
         return f"Fatal Error: {env_vars}"
     
-    jira = JIRA(server=env_vars['Jira_site'], basic_auth=(env_vars['user'], env_vars['API_token']))
+    jira = JIRA(server=env_vars['Jira_site'], basic_auth=(env_vars['user'], env_vars['API_token'])) # Why is this in here a second time?
 
     if task_type == "issue_search":
         issue = issue_search(jira, issue_key, return_fields)
@@ -270,6 +285,7 @@ def jira_search(task_type: str, issue_key: str, criteria: dict, return_fields: l
         JQL = build_JQL(criteria)
         issues = jql_search(jira, JQL)
         return issues
+    # Seems between the above (267) through here (276) is duplicate code? --- IGNORE ---
 
 
 @mcp.prompt()

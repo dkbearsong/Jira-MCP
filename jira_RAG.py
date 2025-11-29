@@ -91,7 +91,7 @@ class JiraRAGTool:
         distances: List[float]
     ) -> float:
         """
-        Calculate relevance score based on distance and semantic similarity. Uses L2 distance by default.
+        Calculate relevance score based on distance and semantic similarity. Uses cosine similarity by default.
         
         Args:
             query_embedding: Embedding of the user query
@@ -105,7 +105,7 @@ class JiraRAGTool:
             return 0.0
         
         # Convert distances to similarity scores (lower distance = higher similarity)
-        # ChromaDB uses L2 distance by default
+        # Set to calculate similarity using Cosine similarity
         similarity_scores = [1 - d for d in distances]
         
         # Calculate average similarity
@@ -116,7 +116,7 @@ class JiraRAGTool:
     def is_context_relevant(
         self,
         query: str,
-        results: Dict[str, Any],
+        results: Any,
         relevance_threshold: float = 0.6,
         min_results: int = 1
     ) -> tuple[bool, float, str]:
@@ -127,7 +127,7 @@ class JiraRAGTool:
         
         Args:
             query: User's query
-            results: Results from ChromaDB query
+            results: Results from ChromaDB query (QueryResult or dict-like object)
             relevance_threshold: Minimum relevance score (0-1)
             min_results: Minimum number of results required
             
@@ -141,13 +141,44 @@ class JiraRAGTool:
         if len(documents) < min_results:
             return False, 0.0, f"Insufficient results: found {len(documents)}, need {min_results}"
         
-        # Get query embedding
-        query_embedding = self.embedding_model.encode(query)
-        # Get result embeddings
+        # Get query embedding and ensure numpy ndarray (handle torch/tf tensors)
+        def _to_numpy_vector(x):
+            try:
+                import torch
+                if isinstance(x, torch.Tensor):
+                    return x.cpu().detach().numpy()
+            except Exception:
+                pass
+
+            # Avoid importing tensorflow to prevent "import could not be resolved" errors.
+            # Instead, detect TensorFlow tensors via duck-typing (numpy() method) or by class metadata.
+            try:
+                if hasattr(x, "numpy") and callable(getattr(x, "numpy")):
+                    return x.numpy()
+            except Exception:
+                pass
+
+            try:
+                mod = getattr(x.__class__, "__module__", "") or ""
+                name = getattr(x.__class__, "__name__", "") or ""
+                if mod.startswith("tensorflow") or name == "Tensor":
+                    try:
+                        return x.numpy()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            return np.asarray(x, dtype=float)
+
+        raw_query_embedding = self.embedding_model.encode(query)
+        query_embedding = _to_numpy_vector(raw_query_embedding)
+
+        # Get result embeddings and ensure numpy ndarray for each
         result_embeddings = [
-            self.embedding_model.encode(doc) for doc in documents
+            _to_numpy_vector(self.embedding_model.encode(doc)) for doc in documents
         ]
-        
+
         # Calculate relevance score
         relevance_score = self.calculate_relevance_score(
             query_embedding,
@@ -205,11 +236,11 @@ class JiraRAGTool:
             )
             if is_relevant:
                 # Context is relevant - return RAG results with formatted context
-                documents = results['documents'][0]
-                metadatas = results['metadatas'][0] if include_metadata else None
+                documents = results['documents'][0] if (results.get('documents') is not None and len(results['documents']) > 0) else [] # type: ignore
+                metadatas = results['metadatas'][0] if (include_metadata and results.get('metadatas') is not None and len(results['metadatas']) > 0) else None # type: ignore
                 
                 # Format the context for the AI
-                formatted_context = self._format_context_for_ai(documents, metadatas)
+                formatted_context = self._format_context_for_ai(documents, metadatas) # type: ignore
                 
                 return {
                     "success": True,
@@ -219,7 +250,7 @@ class JiraRAGTool:
                     "raw_data": {
                         "documents": documents,
                         "metadatas": metadatas,
-                        "distances": results['distances'][0]
+                        "distances": results['distances'][0] if (results.get('distances') is not None and len(results['distances']) > 0) else None # type: ignore
                     }
                 }
             
@@ -334,7 +365,7 @@ class JiraRAGTool:
         webhook_data: Optional[Dict[str, Any]] = None
     ) -> str:
         """
-        Add a Jira issue from webhook to ChromaDB.
+        Add a Jira issue from webhook to ChromaDB. Used specifically for testing with fake ChromaDB clients.
         
         Args:
             issue_key: Jira issue key (e.g., "PROJ-123")
